@@ -16,6 +16,8 @@ client = MongoClient(os.getenv('MONGODB_URI', 'mongodb://localhost:27017/'))
 db = client['auth_db']
 users = db['users']
 budgets = db['budgets']
+credit_cards = db['credit_cards']
+bills = db['bills']
 
 @app.route('/register', methods=['POST'])
 def register():
@@ -91,6 +93,171 @@ def set_budget():
         }
         budgets.insert_one(budget)
         return jsonify({'message': 'Budget created successfully'}), 201
+
+@app.route('/credit-card', methods=['POST'])
+def add_credit_card():
+    data = request.get_json()
+    
+    # Check if required fields are present
+    required_fields = ['email', 'bank_name', 'card_limit', 'due_date_start', 'due_date_end', 'current_balance']
+    if not data or not all(field in data for field in required_fields):
+        return jsonify({'error': 'All fields are required: email, bank_name, card_limit, due_date_start, due_date_end, current_balance'}), 400
+    
+    # Check if user exists
+    user = users.find_one({'email': data['email']})
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    
+    # Create new credit card
+    credit_card = {
+        'email': data['email'],
+        'bank_name': data['bank_name'],
+        'card_limit': data['card_limit'],
+        'due_date_start': data['due_date_start'],
+        'due_date_end': data['due_date_end'],
+        'current_balance': data['current_balance']
+    }
+    
+    credit_cards.insert_one(credit_card)
+    return jsonify({'message': 'Credit card added successfully'}), 201
+
+@app.route('/credit-card', methods=['PUT'])
+def update_credit_card():
+    data = request.get_json()
+    
+    # Check if required fields are present
+    if not data or 'email' not in data or 'bank_name' not in data:
+        return jsonify({'error': 'Email and bank_name are required'}), 400
+    
+    # Check if credit card exists
+    existing_card = credit_cards.find_one({
+        'email': data['email'],
+        'bank_name': data['bank_name']
+    })
+    
+    if not existing_card:
+        return jsonify({'error': 'Credit card not found'}), 404
+    
+    # Update fields
+    update_data = {}
+    if 'card_limit' in data:
+        update_data['card_limit'] = data['card_limit']
+    if 'due_date_start' in data:
+        update_data['due_date_start'] = data['due_date_start']
+    if 'due_date_end' in data:
+        update_data['due_date_end'] = data['due_date_end']
+    if 'current_balance' in data:
+        update_data['current_balance'] = data['current_balance']
+    
+    credit_cards.update_one(
+        {'email': data['email'], 'bank_name': data['bank_name']},
+        {'$set': update_data}
+    )
+    
+    return jsonify({'message': 'Credit card updated successfully'}), 200
+
+@app.route('/credit-card', methods=['DELETE'])
+def delete_credit_card():
+    data = request.get_json()
+    
+    # Check if required fields are present
+    if not data or 'email' not in data or 'bank_name' not in data:
+        return jsonify({'error': 'Email and bank_name are required'}), 400
+    
+    # Delete credit card
+    result = credit_cards.delete_one({
+        'email': data['email'],
+        'bank_name': data['bank_name']
+    })
+    
+    if result.deleted_count == 0:
+        return jsonify({'error': 'Credit card not found'}), 404
+    
+    return jsonify({'message': 'Credit card deleted successfully'}), 200
+
+@app.route('/bill', methods=['POST'])
+def add_bill():
+    data = request.get_json()
+    
+    # Check if required fields are present
+    required_fields = ['email', 'bill_name', 'amount', 'category', 'start_date', 'end_date', 'is_paid']
+    if not data or not all(field in data for field in required_fields):
+        return jsonify({'error': 'All fields are required: email, bill_name, amount, category, start_date, end_date, is_paid'}), 400
+    
+    # Check if user exists
+    user = users.find_one({'email': data['email']})
+    if not user:
+        return jsonify({'error': 'User not found'}), 404
+    
+    # Create new bill
+    bill = {
+        'email': data['email'],
+        'bill_name': data['bill_name'],
+        'amount': data['amount'],
+        'category': data['category'],
+        'start_date': data['start_date'],
+        'end_date': data['end_date'],
+        'is_paid': data['is_paid']
+    }
+    
+    bills.insert_one(bill)
+    return jsonify({'message': 'Bill added successfully'}), 201
+
+@app.route('/bill', methods=['PUT'])
+def update_bill():
+    data = request.get_json()
+    
+    # Check if required fields are present
+    if not data or 'email' not in data or 'bill_name' not in data:
+        return jsonify({'error': 'Email and bill_name are required'}), 400
+    
+    # Check if bill exists
+    existing_bill = bills.find_one({
+        'email': data['email'],
+        'bill_name': data['bill_name']
+    })
+    
+    if not existing_bill:
+        return jsonify({'error': 'Bill not found'}), 404
+    
+    # Update fields
+    update_data = {}
+    if 'amount' in data:
+        update_data['amount'] = data['amount']
+    if 'category' in data:
+        update_data['category'] = data['category']
+    if 'start_date' in data:
+        update_data['start_date'] = data['start_date']
+    if 'end_date' in data:
+        update_data['end_date'] = data['end_date']
+    if 'is_paid' in data:
+        update_data['is_paid'] = data['is_paid']
+    
+    bills.update_one(
+        {'email': data['email'], 'bill_name': data['bill_name']},
+        {'$set': update_data}
+    )
+    
+    return jsonify({'message': 'Bill updated successfully'}), 200
+
+@app.route('/bill', methods=['DELETE'])
+def delete_bill():
+    data = request.get_json()
+    
+    # Check if required fields are present
+    if not data or 'email' not in data or 'bill_name' not in data:
+        return jsonify({'error': 'Email and bill_name are required'}), 400
+    
+    # Delete bill
+    result = bills.delete_one({
+        'email': data['email'],
+        'bill_name': data['bill_name']
+    })
+    
+    if result.deleted_count == 0:
+        return jsonify({'error': 'Bill not found'}), 404
+    
+    return jsonify({'message': 'Bill deleted successfully'}), 200
 
 if __name__ == '__main__':
     app.run(debug=True) 
