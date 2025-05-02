@@ -4,6 +4,7 @@ from pymongo import MongoClient
 import bcrypt
 import os
 from dotenv import load_dotenv
+import datetime
 
 # Load environment variables
 load_dotenv()
@@ -18,6 +19,7 @@ users = db['users']
 budgets = db['budgets']
 credit_cards = db['credit_cards']
 bills = db['bills']
+spending_logs = db['spending_logs']
 
 @app.route('/register', methods=['POST'])
 def register():
@@ -258,6 +260,81 @@ def delete_bill():
         return jsonify({'error': 'Bill not found'}), 404
     
     return jsonify({'message': 'Bill deleted successfully'}), 200
+
+@app.route('/spending-log', methods=['POST'])
+def add_spending_log():
+    data = request.get_json()
+    
+    # Check if required fields are present
+    if not data or 'category' not in data or 'amount' not in data:
+        return jsonify({'error': 'Category and amount are required'}), 400
+    
+    # Get user email from session (you'll need to implement session management)
+    user_email = request.headers.get('X-User-Email')  # Assuming email is passed in header
+    
+    if not user_email:
+        return jsonify({'error': 'User not authenticated'}), 401
+    
+    # Create new spending log
+    spending_log = {
+        'email': user_email,
+        'category': data['category'],
+        'amount': float(data['amount']),
+        'date': datetime.datetime.now()
+    }
+    
+    spending_logs.insert_one(spending_log)
+    return jsonify({'message': 'Spending log added successfully'}), 201
+
+@app.route('/spending-summary', methods=['GET'])
+def get_spending_summary():
+    # Get user email from session
+    user_email = request.headers.get('X-User-Email')
+    
+    if not user_email:
+        return jsonify({'error': 'User not authenticated'}), 401
+    
+    # Aggregate spending by category
+    pipeline = [
+        {'$match': {'email': user_email}},
+        {'$group': {
+            '_id': '$category',
+            'total_amount': {'$sum': '$amount'}
+        }},
+        {'$sort': {'total_amount': -1}}
+    ]
+    
+    result = list(spending_logs.aggregate(pipeline))
+    
+    # Format the response
+    summary = [{'category': item['_id'], 'total_amount': item['total_amount']} for item in result]
+    
+    return jsonify({'spending_summary': summary}), 200
+
+@app.route('/spending-log', methods=['DELETE'])
+def delete_spending_log():
+    data = request.get_json()
+    
+    # Check if required fields are present
+    if not data or 'category' not in data:
+        return jsonify({'error': 'Category is required'}), 400
+    
+    # Get user email from session
+    user_email = request.headers.get('X-User-Email')
+    
+    if not user_email:
+        return jsonify({'error': 'User not authenticated'}), 401
+    
+    # Delete all spending logs for the given category and user
+    result = spending_logs.delete_many({
+        'email': user_email,
+        'category': data['category']
+    })
+    
+    if result.deleted_count == 0:
+        return jsonify({'error': 'No spending logs found for the given category'}), 404
+    
+    return jsonify({'message': f'Successfully deleted {result.deleted_count} spending logs'}), 200
 
 if __name__ == '__main__':
     app.run(debug=True) 
