@@ -11,6 +11,8 @@ from apscheduler.schedulers.background import BackgroundScheduler
 import pandas as pd
 import numpy as np
 import traceback
+import requests
+from flask import jsonify
 
 
 
@@ -21,7 +23,13 @@ dotenv_loaded = load_dotenv(dotenv_path)
 
 
 app = Flask(__name__)
-CORS(app)
+CORS(app, resources={
+    r"/*": {
+        "origins": ["http://localhost:3000"],
+        "methods": ["GET", "POST", "PUT", "DELETE", "OPTIONS"],
+        "allow_headers": ["Content-Type", "X-User-Email"]
+    }
+})
 
 # Configure Flask-Mail with default values
 app.config['MAIL_SERVER'] = os.getenv('MAIL_SERVER', 'smtp.gmail.com')
@@ -616,6 +624,8 @@ def get_monthly_balance_report(user_email, year=None):
         return None
     
     monthly_data = []
+    month_names = ['Ocak', 'Şubat', 'Mart', 'Nisan', 'Mayıs', 'Haziran', 
+                  'Temmuz', 'Ağustos', 'Eylül', 'Ekim', 'Kasım', 'Aralık']
     
     for month in range(1, 13):
         # Ayın başlangıç ve bitiş tarihleri
@@ -647,10 +657,9 @@ def get_monthly_balance_report(user_email, year=None):
         remaining = float(budget['initial_budget']) - total_spending
         
         monthly_data.append({
-            'month': month,
-            'total_budget': float(budget['initial_budget']),
-            'total_spending': total_spending,
-            'remaining': remaining
+            'month': month_names[month-1],
+            'income': float(budget['initial_budget']),
+            'expense': total_spending
         })
     
     return monthly_data
@@ -687,20 +696,15 @@ def get_category_spending_report(user_email, year=None):
     # Toplam harcama
     total_spending = sum(category_totals.values())
     
-    # Yüzdelik hesapla
-    category_percentages = {}
+    # Kategori verilerini oluştur
+    category_data = []
     for category, amount in category_totals.items():
-        percentage = (amount / total_spending) * 100
-        category_percentages[category] = {
-            'amount': amount,
-            'percentage': round(percentage, 2)
-        }
+        category_data.append({
+            'name': category,
+            'value': amount
+        })
     
-    return {
-        'total_budget': float(budget['initial_budget']),
-        'total_spending': total_spending,
-        'categories': category_percentages
-    }
+    return category_data
 
 @app.route('/generate_report', methods=['POST'])
 def generate_report():
@@ -720,7 +724,7 @@ def generate_report():
         return jsonify({'error': 'User not found'}), 404
     
     try:
-        if report_type == 1:
+        if report_type == 'monthly_balance':
             # Gelir-Gider Dengesi Raporu
             report_data = get_monthly_balance_report(user_email, year)
             if not report_data:
@@ -729,10 +733,10 @@ def generate_report():
             return jsonify({
                 'report_type': 'monthly_balance',
                 'year': year,
-                'data': report_data
+                'monthly_data': report_data
             }), 200
             
-        elif report_type == 2:
+        elif report_type == 'category_spending':
             # Kategori Bazlı Harcama Raporu
             report_data = get_category_spending_report(user_email, year)
             if not report_data:
@@ -741,7 +745,7 @@ def generate_report():
             return jsonify({
                 'report_type': 'category_spending',
                 'year': year,
-                'data': report_data
+                'category_data': report_data
             }), 200
             
         else:
@@ -876,8 +880,176 @@ def get_home_messages():
     
     return jsonify({'messages': messages}), 200
 
+@app.route('/upcoming-payments', methods=['GET'])
+def get_upcoming_payments():
+    try:
+        email = request.headers.get('X-User-Email')
+        if not email:
+            return jsonify({'error': 'Kullanıcı bilgisi bulunamadı'}), 401
+
+        # Şu anki tarih
+        current_date = datetime.datetime.now()
+        # 30 gün sonrası
+        thirty_days_later = current_date + datetime.timedelta(days=30)
+
+        # Kredi kartı ödemelerini al
+        card_payments = []
+        credit_cards = credit_cards.find({
+            'email': email,
+            'due_date_end': {
+                '$gte': current_date.strftime('%Y-%m-%d'),
+                '$lte': thirty_days_later.strftime('%Y-%m-%d')
+            }
+        })
+        
+        for card in credit_cards:
+            card_payments.append({
+                'name': f"{card['bank_name']} Kredi Kartı",
+                'amount': card['current_balance'],
+                'due_date': card['due_date_end']
+            })
+
+        # Fatura ödemelerini al
+        bill_payments = []
+        bills_list = bills.find({
+            'email': email,
+            'is_paid': False,
+            'end_date': {
+                '$gte': current_date.strftime('%Y-%m-%d'),
+                '$lte': thirty_days_later.strftime('%Y-%m-%d')
+            }
+        })
+        
+        for bill in bills_list:
+            bill_payments.append({
+                'name': bill['bill_name'],
+                'amount': bill['amount'],
+                'due_date': bill['end_date']
+            })
+
+        # Tüm ödemeleri birleştir ve tarihe göre sırala
+        all_payments = card_payments + bill_payments
+        all_payments.sort(key=lambda x: x['due_date'])
+
+        return jsonify({'payments': all_payments}), 200
+    except Exception as e:
+        print(f"Error in get_upcoming_payments: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/recent-expenses', methods=['GET'])
+def get_recent_expenses():
+    try:
+        email = request.headers.get('X-User-Email')
+        if not email:
+            return jsonify({'error': 'Kullanıcı bilgisi bulunamadı'}), 401
+
+        # Son 10 harcamayı al
+        expenses = list(spending_logs.find(
+            {'email': email}
+        ).sort('date', -1).limit(10))
+        
+        expense_list = []
+        for expense in expenses:
+            expense_list.append({
+                'description': expense['category'],
+                'amount': expense['amount'],
+                'date': expense['date'].strftime('%Y-%m-%d')
+            })
+
+        return jsonify({'expenses': expense_list}), 200
+    except Exception as e:
+        print(f"Error in get_recent_expenses: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route('/budget', methods=['GET'])
+def get_budget():
+    # Get user email from header
+    user_email = request.headers.get('X-User-Email')
+    
+    if not user_email:
+        return jsonify({'error': 'User not authenticated'}), 401
+    
+    # Find user's budget
+    budget = budgets.find_one({'email': user_email})
+    
+    if not budget:
+        return jsonify({
+            'initial_budget': 0,
+            'remaining_amount': 0
+        }), 200
+    
+    # Calculate remaining amount
+    total_spending = spending_logs.aggregate([
+        {'$match': {'email': user_email}},
+        {'$group': {
+            '_id': None,
+            'total': {'$sum': '$amount'}
+        }}
+    ])
+    
+    total_spending_result = list(total_spending)
+    total_spent = total_spending_result[0]['total'] if total_spending_result else 0
+    
+    remaining_amount = float(budget['initial_budget']) - total_spent
+    
+    return jsonify({
+        'initial_budget': float(budget['initial_budget']),
+        'remaining_amount': remaining_amount
+    }), 200
+
+@app.route('/payments', methods=['GET'])
+def get_payments():
+    try:
+        # Get user email from header
+        user_email = request.headers.get('X-User-Email')
+        
+        if not user_email:
+            return jsonify({'error': 'User not authenticated'}), 401
+        
+        # Get all payments from bills and credit cards
+        total_payments = 0
+        
+        # Get paid bills
+        paid_bills = bills.find({
+            'email': user_email,
+            'is_paid': True
+        })
+        
+        for bill in paid_bills:
+            total_payments += float(bill['amount'])
+        
+        # Get credit card payments
+        card_payments = credit_cards.find({
+            'email': user_email
+        })
+        
+        for card in card_payments:
+            total_payments += float(card['current_balance'])
+        
+        return jsonify({
+            'total_payments': total_payments
+        }), 200
+        
+    except Exception as e:
+        print(f"Error in get_payments: {str(e)}")
+        return jsonify({'error': str(e)}), 500
+
+@app.route("/kur", methods=["GET"])
+def get_selected_exchange_rates():
+    try:
+        response = requests.get("https://open.er-api.com/v6/latest/USD")
+        data = response.json()
+        selected = {k: v for k, v in data["rates"].items() if k in ["TRY", "EUR", "GBP"]}
+        return jsonify({
+            "base": data["base_code"],
+            "date": data["time_last_update_utc"],
+            "rates": selected
+        })
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
 if __name__ == '__main__':
-    app.run(debug=True) 
+    app.run(debug=True)
 
 
 

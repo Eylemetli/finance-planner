@@ -444,10 +444,139 @@ curl -X GET http://localhost:5000/home/messages \
 }
 ```
 
+## Frontend-Backend Entegrasyonu
+
+### Bütçe Yönetimi
+
+#### Bütçe Genel Bakış Sayfası (BudgetOverview)
+
+1. **Gelir Girişi ve Cüzdan Kartı**
+   - Kullanıcı gelir bilgisini girebilir
+   - POST `/budget` endpoint'i ile backend'e gönderilir
+   - Kullanıcı email bilgisi localStorage'dan alınır
+   - Girilen bütçe Cüzdan kartında gösterilir
+   - Backend'de `initial_budget` olarak kaydedilir
+
+2. **Kredi Kartı Limit Takibi ve Varlıklar Kartı**
+   - Kredi kartı limitleri ve bakiyeleri backend'den alınır
+   - GET `/credit-cards` endpoint'i ile veriler çekilir
+   - Her kart için kalan limit hesaplanır (`card_limit - current_balance`)
+   - Tüm kartların kalan limitleri toplanarak Varlıklar kartında gösterilir
+
+3. **Toplam Kaynaklar**
+   - Toplam Kaynaklar = Cüzdan Bütçesi + Tüm Kartların Kalan Limitleri
+   - Otomatik olarak hesaplanır ve gösterilir
+
+#### API Endpoints
+
+1. **Bütçe İşlemleri**
+   ```http
+   POST /budget
+   Headers: {
+     "X-User-Email": "user@example.com"
+   }
+   Body: {
+     "initial_budget": 3000
+   }
+   ```
+
+2. **Kredi Kartı İşlemleri**
+   ```http
+   GET /credit-cards
+   Headers: {
+     "X-User-Email": "user@example.com"
+   }
+   ```
+
+#### Frontend Özellikleri
+
+1. **Veri Yönetimi**
+   - Axios ile API çağrıları
+   - Otomatik veri yenileme
+   - Hata ve başarı mesajları
+   - Yükleme durumu gösterimi
+
+2. **Kullanıcı Arayüzü**
+   - Responsive tasarım
+   - Gerçek zamanlı veri güncelleme
+   - Sayısal formatlama (TL)
+   - Kullanıcı dostu hata mesajları
+
+3. **Güvenlik**
+   - Kullanıcı email bilgisi localStorage'dan alınır
+   - API isteklerinde email header'ı kullanılır
+   - Input validasyonu (sadece sayısal değer)
+
+#### Backend Gereksinimleri
+
+1. **Veritabanı Alanları**
+   - `initial_budget`: Kullanıcının toplam bütçesi
+   - `card_limit`: Kredi kartı limiti
+   - `current_balance`: Kredi kartı mevcut bakiyesi
+
+2. **API Yanıtları**
+   - Başarılı işlemlerde uygun mesaj
+   - Hata durumlarında açıklayıcı mesaj
+   - HTTP durum kodları
+
 ## Notlar
 - Tüm API isteklerinde `X-User-Email` header'ı kullanıcı kimliğini belirtmek için kullanılır
 - Şifreler veritabanında bcrypt ile hashlenerek saklanır
 - Tüm tarihler ISO 8601 formatında gönderilmelidir (YYYY-MM-DD)
 - Para birimleri TL cinsinden ve ondalık sayı olarak gönderilmelidir
 - E-posta bildirimleri için Gmail SMTP sunucusu kullanılmaktadır
-- Gmail hesabınızda 2 Adımlı Doğrulama ve Uygulama Şifresi gereklidir 
+- Gmail hesabınızda 2 Adımlı Doğrulama ve Uygulama Şifresi gereklidir
+
+## Frontend (React) Kullanımı ve Özellikler
+
+### Kullanılan Teknolojiler
+- **React**: Modern, component tabanlı frontend kütüphanesi
+- **React Router**: Sayfa yönlendirme ve SPA deneyimi
+- **Tailwind CSS**: Hızlı ve esnek stil oluşturma
+- **Axios**: API istekleri için HTTP istemcisi
+
+### Sayfa Yapısı
+- **Giriş (Login):** Kullanıcı girişi
+- **Kayıt (Register):** Yeni kullanıcı kaydı
+- **Ana Sayfa (Home):** 
+  - Sol üstte logo
+  - Yatay navigasyon menüsü (Bütçe, Kredi Kartları, Faturalar, Ödemeler, Harcama Günlüğü, Raporlar)
+  - Yeşil tonlarında ferah ve sade tasarım
+  - Responsive yapı
+
+### Login ve Register İşleyişi
+- **Kayıt Ol (Register):**
+  - Kullanıcıdan e-posta, şifre ve şifre tekrar alınır.
+  - Şifreler eşleşmiyorsa frontend'de uyarı verilir, istek gönderilmez.
+  - Eşleşiyorsa `/register` endpointine POST isteği gönderilir (`email`, `password` JSON olarak).
+  - Kayıt başarılıysa kullanıcı login sayfasına yönlendirilir. Hata varsa ekranda gösterilir.
+
+- **Giriş Yap (Login):**
+  - Kullanıcıdan e-posta ve şifre alınır.
+  - `/login` endpointine POST isteği gönderilir.
+  - Giriş başarılıysa kullanıcı bilgileri localStorage'a kaydedilir ve anasayfaya yönlendirilir.
+  - Hatalı girişte kalan giriş hakkı ekranda gösterilir. 3 hatadan sonra buton devre dışı kalır.
+  - Backend tarafında da giriş hakkı (login_attempts) kontrolü yapılır ve ilgili hata mesajı gösterilir.
+
+### API Entegrasyonu
+- **Axios** ile istekler yapılır.
+- Backend adresi: `http://localhost:5000`
+- Tüm istekler JSON formatında yapılır.
+- Hata ve başarı mesajları kullanıcıya anlık olarak gösterilir.
+
+### 3 Giriş Hakkı Sistemi
+- Kullanıcı login ekranında 3 kez yanlış giriş yapabilir.
+- Her hatada kalan hak ekranda gösterilir.
+- 3 hatadan sonra giriş butonu devre dışı kalır.
+- Backend tarafında da MongoDB'de `login_attempts` alanı ile güvenlik sağlanır.
+
+### UI Tasarım Detayları
+- Tüm sayfalarda üstte küçük logo ve arka planda flu, büyük logo bulunur.
+- Responsive (mobil uyumlu) ve sade bir arayüz sunulur.
+- Tüm metinler ve hata mesajları Türkçedir.
+- Tailwind CSS ile modern ve okunabilir bir tasarım uygulanmıştır.
+
+### Örnek Kullanım
+- Kayıt ol: E-posta ve şifre girin, şifreler eşleşiyorsa kayıt başarılı olur.
+- Giriş yap: E-posta ve şifre girin, 3 kez yanlış girerseniz giriş hakkınız biter.
+- Başarılı girişte kullanıcı bilgileri localStorage'a kaydedilir. 
